@@ -9,6 +9,32 @@ namespace gvk
 		double mTicksPerSecond;
 		double mStartTicks;
 		double mEndTicks;
+
+		double start_ticks() const
+		{
+			return mStartTicks;
+		}
+
+		double end_ticks() const
+		{
+			return mEndTicks;
+		}
+		
+		double start_time() const
+		{
+			if (mTicksPerSecond == 0.0) {
+				throw gvk::runtime_error("animation_clip_data::mTicksPerSecond may not be 0.0 => set a different value!");
+			}
+			return mStartTicks / mTicksPerSecond;
+		}
+
+		double end_time() const
+		{
+			if (mTicksPerSecond == 0.0) {
+				throw gvk::runtime_error("animation_clip_data::mTicksPerSecond may not be 0.0 => set a different value!");
+			}
+			return mEndTicks / mTicksPerSecond;
+		}
 	};
 
 	struct position_key
@@ -200,16 +226,6 @@ namespace gvk
 
 		/** Model space is the space of a model (within which meshes are positioned). */
 		model_space,
-
-		/** The space of one specific bone, w.r.t. the mesh's base coordinate system.
-		 *	I.e., this is the mesh-local bone space and is different for each mesh.
-		 */
-		mesh_local_bone_space,
-
-		/** The space of one specific bone, w.r.t. the model's base coordinate system.
-		 *	I.e., this is ths "global bone space", when "global" refers to the model.
-		 */
-		global_bone_space,
 	};
 	
 	class model_t;
@@ -255,7 +271,7 @@ namespace gvk
 		void animate(const animation_clip_data& aClip, double aTime, F&& aBoneMatrixCalc)
 		{
 			if (aClip.mTicksPerSecond == 0.0) {
-				throw gvk::runtime_error("mTicksPerSecond may not be 0.0 => set a different value!");
+				throw gvk::runtime_error("animation_clip_data::mTicksPerSecond may not be 0.0 => set a different value!");
 			}
 			if (aClip.mAnimationIndex != mAnimationIndex) {
 				throw gvk::runtime_error("The animation index of the passed animation_clip_data is not the same that was used to create this animation.");
@@ -374,7 +390,7 @@ namespace gvk
 		 *	with one of the resulting bone matrices is transformed into the given target space.
 		 *	This method writes the bone matrices into contiguous strided memory where aTargetMemory points to the
 		 *	location where the first bone matrix shall be written to.
-		 *	
+		 *
 		 *	@param	aClip				Animation clip to use for the animation
 		 *	@param	aTime				Time in seconds to calculate the bone matrices at.
 		 *	@param	aTargetSpace		The target space into which the vertices shall be transformed by multiplying them with the bone matrices
@@ -391,7 +407,7 @@ namespace gvk
 		 *	This method writes the bone matrices into one single contiguous piece of memory which is expected to
 		 *	be the single target to receive ALL bone matrices of all meshes. This method is intended to be used with
 		 *	bone indices that have been retrieved(or transformed!) with one of the model_t::*_for_single_target_buffer methods.
-		 * 
+		 *
 		 *	@param	aClip				Animation clip to use for the animation
 		 *	@param	aTime				Time in seconds to calculate the bone matrices at.
 		 *	@param	aTargetSpace		The target space into which the vertices shall be transformed by multiplying them with the bone matrices
@@ -399,17 +415,45 @@ namespace gvk
 		 */
 		void animate_into_single_target_buffer(const animation_clip_data& aClip, double aTime, bone_matrices_space aTargetSpace, glm::mat4* aTargetMemory);
 
-		/**	Returns all the unique keyframe time-values of the given animation. 
+		/**	Returns all the unique keyframe time-values of the given animation.
 		 *	@param	aClip				Animation clip which to extract the unique keyframe time-values from
 		 */
-		std::vector<double> animation_key_times_within_clip(const animation_clip_data& aClip);
+		std::vector<double> animation_key_times_within_clip(const animation_clip_data& aClip) const;
+
+		/** Returns the total number of animated nodes stored in an animation */
+		size_t number_of_animated_nodes() const;
+		
+		/** Returns the animated_node data structure at the given index
+		 *	@param	aNodeIndex			Index referring to the node that shall be returned
+		 */
+		std::reference_wrapper<animated_node> get_animated_node_at(size_t aNodeIndex);
+		
+		/**	Returns the index of the parent node which is also animated by this animation for the given node index.
+		 *	@param	aNodeIndex			Index referring to the node of which the animated parent shall be returned for.
+		 */
+		std::optional<size_t> get_animated_parent_index_of(size_t aNodeIndex) const;
+
+		/**	Returns a reference to the parent node which is also animated by this animation for the given node index.
+		 *	@param	aNodeIndex			Index referring to the node of which the animated parent shall be returned for.
+		 */
+		std::optional<std::reference_wrapper<animated_node>> get_animated_parent_node_of(size_t aNodeIndex);
+
+		/**	Returns the indices of all nodes that the given node index is an animated parent for within the context of this animation.
+		 *	@param	aNodeIndex			Index referring to the node of which the animated childs shall be returned for.
+		 */
+		std::vector<size_t> get_child_indices_of(size_t aNodeIndex) const;
+
+		/**	Returns references to all nodes that the given node index is an animated parent for within the context of this animation.
+		 *	@param	aNodeIndex			Index referring to the node of which the animated childs shall be returned for.
+		 */
+		std::vector<std::reference_wrapper<animated_node>> get_child_nodes_of(size_t aNodeIndex);
 		
 	private:
 		/** Helper function used during animate() to find two positions of key-elements
 		 *	between which the given aTime lies.
 		 */
 		template <typename T>
-		std::tuple<size_t, size_t> find_positions_in_keys(const T& aCollection, double aTime)
+		std::tuple<size_t, size_t> find_positions_in_keys(const T& aCollection, double aTime) const
 		{
 			const auto maxIndex = aCollection.size() - 1;
 			
@@ -432,7 +476,7 @@ namespace gvk
 		 *	factor in the range [0..1].
 		 */
 		template <typename K>
-		float get_interpolation_factor(const K& key1, const K& key2, double aTime)
+		float get_interpolation_factor(const K& key1, const K& key2, double aTime) const
 		{
 			double timeDifferenceTicks = key2.mTime - key1.mTime;
 			if (std::abs(timeDifferenceTicks) < std::numeric_limits<double>::epsilon()) {
